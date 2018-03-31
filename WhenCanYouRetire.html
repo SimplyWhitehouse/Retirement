@@ -1,0 +1,257 @@
+<html>
+	<head>
+		<style>
+			.cntr {
+				display: grid;
+				grid-template-columns: 1fr auto 1fr;
+			}
+
+			.frm {
+				display: grid;
+			}
+
+			.cntr * {
+				grid-column: 2;
+			}
+
+			.inp {
+				text-align: center;
+				font-size: 1.3em;
+				border-radius: 0.3em;
+				border-style: solid;
+				border-width: 1px;
+			}
+
+			span.res {
+				font-size: 1.1em;
+				font-weight: bold;
+			}
+
+			p.res {
+				font-size: 1.3em;
+			}
+
+			.cntr button {
+				border-radius: 0.3em;
+				font-size: 1.5em;
+			}
+		</style>
+	</head>
+	<body>
+		<center class="cntr title">
+			<form class="frm">
+				<p>How Much Money (Today's Dollars) A Month Do You Want To Live On?</p>
+				<input class="inp" id="in_desiredDraw" value="$4,000"/>
+				<p></p>
+				<p>How Much Do You Already Have Invested?</p>
+				<input class="inp" id="in_startValue" value="$0.00"/>
+				<p></p>
+				<p>How Much Money Will You Invest Each Month?</p>
+				<input class="inp" id="in_monthlyPayment" value="$1,000"/>
+				<p></p>
+				<p>What Year Will You Start?</p>
+				<input class="inp" id="in_startYear" value="2020"/>
+				<p></p>
+				<p>What Is Your Current Age?</p>
+				<input class="inp" id="in_currAge" value="23"/>
+			</form>
+			<p></p>
+			<p class="res">
+				You can retire in the year
+				<span class="res" id="out_year">X</span>
+				.<br/>
+				You'll be
+				<span class="res" id="out_age">X</span>
+				years old,<br/>
+				and have
+				<span class="res" id="out_fund">$X</span>
+				invested.
+			</p>
+		</center>
+		<script>
+			/** PARAMS
+					{Object} config	- Constructor uses the value and rate properties
+						config.value - The starting value of the account
+						config.rate  - The interest rate of the account
+			*/
+			function CompoundAccount(config){
+				config = config || {};
+							
+				// Start value of the account, default $0
+				this.value = config.hasOwnProperty("value") ? toMoney(config.value) : 0;
+
+				// Interest rate of the account, default 0%
+				const rate = config.hasOwnProperty("rate") ? config.rate : 0;
+
+
+				function toMoney(num){
+					return ~~(num*100)/100;
+				}
+
+				/** Accrues interest at the assigned rate, and will try to apply the delta to the principal
+					PARAM
+						{number} delta - The change in principal to be applied to the account
+					RETURNS
+						{number} - The amount of delta that was not applied to the principal
+				*/
+				this.step = function(delta){
+					delta = toMoney(delta) || 0;
+					
+					let newValue = toMoney(this.value*(1+rate) + delta),
+					let remainingDelta = 0
+					
+					if (newValue < 0) {
+						remainingDelta = -newValue;
+						newValue = 0;
+					}
+					this.value = newValue;
+					return remainingDelta;
+				}
+			}
+		</script>
+		<script>
+			// utils
+			function getVal(id){
+				return parseFloat(formatFromMoney(document.getElementById(id).value));
+			}
+			function setText(id, str){
+				const el = document.getElementById(id);
+				el.innerText = str;
+				el.value = str;
+			}
+			function formatToMoney(num){
+				return "$" + num.toFixed(2).replace(/(\d)(?=(\d{3})+\.)/g, '$1,');
+			}
+			function formatFromMoney(str){
+				return Number(str.replace(/[^0-9\.-]+/g,""));
+			}
+			function formatToPercent(num){
+				return num.toFixed(2) + "%";
+			}
+			function formatToYear(num){
+				return num.toFixed();
+			}
+
+			const reformatList = [
+				{id: "in_desiredDraw",  	format: "money"},
+				{id: "in_monthlyPayment",  	format: "money"},
+				{id: "in_startValue",  		format: "money"},
+				{id: "in_currAge",  		format: "years"},
+				{id: "in_startYear",  		format: "years"}
+			];
+			const reformatFuncs = {
+				"money": 	formatToMoney,
+				"percent": 	formatToPercent,
+				"years": 	formatToYear
+			};
+			function reformatInputs(){
+				for (el of reformatList){
+					setText(el.id, reformatFuncs[el.format](getVal(el.id)));
+				}
+			}
+
+
+			// Business Logic
+			const INFLATION = 0.0275;
+			const DRAWRATE  = 0.06;
+			const SNPRATE   = 0.12;
+
+			function updateResults(){
+				reformatInputs();
+				
+				const result = findResult({
+					value: getVal("in_startValue"),
+					rate: SNPRATE/12,
+					payment: getVal("in_monthlyPayment"),
+					desiredDraw: getVal("in_desiredDraw")
+				})
+
+				const currYear = (new Date()).getFullYear();
+				const age = getVal("in_currAge");
+				const startYear = getVal("in_startYear");
+				const endAge = age + ~~(result.duration/12) + startYear - currYear;
+				const endYear = startYear + ~~(result.duration/12);
+
+				setText("out_year", endYear);
+				setText("out_age", endAge);
+				setText("out_fund", formatToMoney(result.amount).split(".")[0]);
+			}
+
+			/**
+				data.value 			= current value of account
+				data.rate 	 		= interest rate
+				data.payment 		= monthly payment amount
+				data.desiredDraw	= how much we eventually want to draw from investments monthly
+			*/
+			function findResult(data){
+				const result = {
+					duration: 0,
+					amount: 0
+				};
+				const ca = new CompoundAccount(data);
+				let months = 0;
+
+				// make sure the account won't not grow
+				if (!((data.value==0 && data.payment<=0) || (data.rate<=0 && data.payment<=0))){
+					// Iterate until we have enough
+					while (!haveEnoughInvested(ca, data, months++) && months < 1000){
+						ca.step(data.payment)
+					}
+
+					if (months >= 1000){
+						console.log(ca, data);
+						throw new Error("Infinite Loop");
+					}
+				}
+				console.log(months);
+
+				result.duration = months;
+				result.amount = ca.value;
+
+				return result;
+			}
+
+			function haveEnoughInvested(ca, data, months){
+				// how much we want to draw(compensating for inflation) is less than how much we can draw per month
+				return data.desiredDraw*Math.pow(1+(INFLATION/12), months) <= ca.value*DRAWRATE/12;
+			}
+
+
+			// Setup
+			let prevTO = 0;
+			function makeUpdateCallback(time){
+				return () => {
+					window.clearTimeout(prevTO);
+					prevTO = window.setTimeout(updateResults, time || 0)
+				};
+			}
+
+			(function(){
+				const svg = document.querySelector(".nav-toggle-label svg");
+				const header = document.getElementById("headerAnnouncementWrapper");
+				const svgStrokeColor = !!svg ? window.getComputedStyle(svg, null).stroke : "#7c0404";	// Dark Red
+				const titleColor = !!header ? window.getComputedStyle(header, null).color : "#01044b";	// Dark Blue
+				const titleBG = /*!!header ? window.getComputedStyle(header, null).backgroundColor : */"#d5d7f1";	// Light Blue
+
+				const inputs = document.querySelectorAll("input.inp");
+				for (i of inputs){
+					i.oninput = makeUpdateCallback(2000);
+					i.onblur = makeUpdateCallback(0);
+					i.style.color = titleColor;
+					i.style.background = titleBG;
+				}
+
+				const spans = document.querySelectorAll("span.res");
+				for (i of spans){
+					i.style.color = svgStrokeColor; 
+				}
+
+
+			})()
+
+			// Start up
+			setText("in_startYear", (new Date()).getFullYear());
+			updateResults();
+		</script>
+	</body>
+</html>
