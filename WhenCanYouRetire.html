@@ -125,9 +125,6 @@
 			function formatFromMoney(str){
 				return Number(str.replace(/[^0-9\.-]+/g,""));
 			}
-			function formatToPercent(num){
-				return num.toFixed(2) + "%";
-			}
 			function formatToYear(num){
 				return num.toFixed();
 			}
@@ -141,7 +138,6 @@
 			];
 			const reformatFuncs = {
 				"money": 	formatToMoney,
-				"percent": 	formatToPercent,
 				"years": 	formatToYear
 			};
 			function reformatInputs(){
